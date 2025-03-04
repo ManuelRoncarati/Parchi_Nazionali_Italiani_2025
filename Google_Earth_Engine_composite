@@ -1,0 +1,72 @@
+// Definisco l'AOI caricando lo shapefile dagli assets (Area di interesse)
+var aoi = ee.FeatureCollection('projects/ee-roncaratimanuel/assets/PN_Sila');
+
+// Centro la mappa sull'AOI, il secondo parametro è il livello di zoom
+Map.centerObject(aoi, 10);
+
+// Definisco le variabili temporali
+var startDate = '1984-06-01';
+var endDate = '1988-07-31';
+
+// Carico e filtro la collezione Landsat 5
+var landsat5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
+    .filterBounds(aoi)
+    .filter(ee.Filter.calendarRange(6, 7, 'month')) // Filtra solo i mesi di giugno e luglio
+    .filterDate(startDate, endDate);
+
+// Applico i fattori di scala alle bande ottiche
+function applyScaleFactors(image) {
+    var opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2);
+    return image.addBands(opticalBands, null, true);
+}
+
+landsat5 = landsat5.map(applyScaleFactors);
+
+// Creo un'immagine composita (mediana) e ritaglio secondo l'AOI
+var composite = landsat5.median().clip(aoi);
+
+var visParams = {
+    bands: ['SR_B3', 'SR_B2', 'SR_B1'], // Uso le bande RGB Landsat 5 per la visualizzazione nella mappa
+    min: 0,
+    max: 0.2
+};
+// visualizzo la composita filtrata per il periodo di interesse 
+Map.addLayer(composite, visParams, 'L5 Composite');
+
+// Filtro in base alla copertura nuvolosa (CLOUD_COVER)
+var landsat5FiltClouds = landsat5
+    .filterBounds(aoi)
+    .filter(ee.Filter.calendarRange(6, 7, 'month')) // Filtra solo giugno e luglio
+    .filterDate(startDate, endDate)
+    .filter(ee.Filter.lessThan('CLOUD_COVER', 50));
+
+// Creo un'immagine composita dalle immagini filtrate
+var compositeFiltClouds = landsat5FiltClouds.median().clip(aoi);
+// visualizzo la composita mediana filtrata per CLOUD_COVER
+Map.addLayer(compositeFiltClouds, visParams, 'L5 Composite cloud filter');
+
+// Stampo la dimensione delle collezioni per il confronto nel numero di immagini disponibili
+print('Dimensione collezione landsat5', landsat5.size());
+print('Dimensione collezione landsat5 con filtro nuvole', landsat5FiltClouds.size());
+
+// Definisco la funzione di mascheratura delle nuvole
+function maskSrClouds(image) {
+    // Bit 0 - Fill
+    // Bit 1 - Dilated Cloud
+    // Bit 2 - Cirrus
+    // Bit 3 - Cloud
+    // Bit 4 - Cloud Shadow
+    var qaMask = image.select('QA_PIXEL').bitwiseAnd(parseInt('11111', 2)).eq(0);
+    var saturationMask = image.select('QA_RADSAT').eq(0);
+
+    return image.updateMask(qaMask)
+        .updateMask(saturationMask);
+}
+
+// Applico la maschera per le nuvole alla collezione filtrata
+var landsat5FiltMasked = landsat5FiltClouds.map(maskSrClouds);
+
+// Creo una composita mascherata per le nuvole 
+var landsat5compositeMasked = landsat5FiltMasked.median().clip(aoi);
+
+Map.addLayer(landsat5compositeMasked, visParams, 'L5 composite masked');

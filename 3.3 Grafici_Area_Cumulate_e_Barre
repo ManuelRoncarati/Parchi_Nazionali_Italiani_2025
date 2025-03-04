@@ -1,0 +1,166 @@
+# Grafico a Barre per le Aree Cluster
+
+
+# Carico le librerie necessarie
+library(readxl)      # Per leggere file Excel
+library(ggplot2)     # Per creare grafici
+library(dplyr)       # Per manipolare i dati
+library(viridis)     # Per le palette di colori
+library(stringr)     # Per operazioni sulle stringhe
+
+# Imposto la working directory (modifica con il percorso corretto)
+setwd("C:/PN_Sila")
+
+# Carico il file Excel contenente le aree dei cluster
+df <- read_excel("cluster_areas_5_cluster.xlsx")
+
+# Estraggo gli anni dalla colonna Date per formare intervalli "YYYY-YYYY"
+df$Date <- str_extract_all(df$Date, "\\d{4}")
+df$Date <- sapply(df$Date, function(x) paste(x, collapse = "-"))
+df$Date <- as.factor(df$Date)
+
+# Normalizzo la colonna LULCC per unificare le varianti di "acque"
+df <- df %>%
+  mutate(
+    LULCC = str_trim(LULCC),
+    LULCC = ifelse(str_detect(LULCC, regex("^acque", ignore_case = TRUE)), "Acque", LULCC)
+  )
+
+# Convertisco LULCC in factor (facoltativo)
+df$LULCC <- as.factor(df$LULCC)
+
+# Creo il grafico a barre
+grafico <- ggplot(df, aes(x = LULCC, y = Area_km2, fill = Date)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.8) +
+  geom_text(aes(label = sprintf("%.1f", Area_km2), y = Area_km2 + 10),
+            position = position_dodge(width = 0.9),
+            angle = 90,
+            hjust = 0,
+            size = 7,
+            fontface = "bold") +
+  scale_fill_viridis_d(option = "viridis", direction = -1) +
+  theme_minimal() +
+  theme(
+    plot.title   = element_text(size = 20, face = "bold", color = "black", hjust = 0.5, margin = margin(b = 15)),
+    axis.title.x = element_text(size = 20, face = "bold", color = "black", margin = margin(t = 10)),
+    axis.title.y = element_text(size = 20, face = "bold", color = "black", margin = margin(r = 10)),
+    axis.text    = element_text(size = 20, face = "bold", color = "black"),
+    axis.text.x  = element_text(angle = 0, hjust = 0.5, vjust = 0.5, color = "black", face = "bold"),
+    legend.position = "right",
+    legend.title    = element_text(size = 20, face = "bold", color = "black"),
+    legend.text     = element_text(size = 20, face = "bold", color = "black"),
+    panel.grid.major.y = element_line(color = "gray80", linewidth = 0.5),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor   = element_blank(),
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5)
+  ) +
+  labs(
+    title = "Distribuzione dell'area per uso del suolo e periodo\n(Parco Nazionale del Golfo di Orosei e del Gennargentu)",
+    x = "Uso del suolo",
+    y = expression(paste("Area (", km^2, ")")),
+    fill = "Periodo"
+  ) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 450))
+
+# Mostro il grafico
+print(grafico)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Grafico Stacked Area per i Cambiamenti nell'Uso del Suolo
+
+
+# Carico le librerie necessarie
+library(ggplot2)     # Per creare grafici
+library(dplyr)       # Per manipolare i dati
+library(viridis)     # Per le palette di colori
+library(readxl)      # Per leggere file Excel
+library(stringr)     # Per operazioni sulle stringhe
+
+# Specifico il percorso del file Excel
+file_path <- "C:/PN_Gennargentu/cluster_areas_3_cluster.xlsx"
+
+# Verifico che il file esista
+if (!file.exists(file_path)) {
+  stop(paste("Il file", file_path, "non esiste nella directory corrente."))
+}
+
+# Carico i dati dal foglio "Sheet 1" del file Excel
+df <- read_excel(file_path, sheet = "Sheet 1")
+
+# Verifico che le colonne richieste siano presenti
+required_columns <- c("Date", "LULCC", "Area_km2")
+missing_columns <- setdiff(required_columns, names(df))
+if (length(missing_columns) > 0) {
+  stop(paste("Le seguenti colonne mancano nel file Excel:",
+             paste(missing_columns, collapse = ", ")))
+}
+
+# Normalizzo la colonna LULCC per unificare le varianti di "acque"
+df <- df %>% 
+  mutate(
+    LULCC = str_trim(LULCC),
+    LULCC = ifelse(str_detect(LULCC, regex("^acque", ignore_case = TRUE)), "Acque", LULCC)
+  )
+
+# Estraggo gli anni dalla colonna Date per formare intervalli "YYYY-YYYY"
+df$Date <- str_extract_all(df$Date, "\\d{4}")
+df$Date <- sapply(df$Date, function(x) paste(x, collapse = "-"))
+df$Date <- as.factor(df$Date)
+
+# Converto la colonna Area_km2 in numerico, se necessario
+df <- df %>% mutate(Area_km2 = as.numeric(Area_km2))
+
+# Rimuovo eventuali valori mancanti
+df_clean <- df %>% filter(!is.na(Date) & !is.na(LULCC) & !is.na(Area_km2))
+
+# Aggrego i dati per intervallo di tempo e categoria di uso del suolo
+df_area <- df_clean %>% 
+  group_by(Date, LULCC) %>% 
+  summarise(Area_km2 = sum(Area_km2), .groups = "drop")
+
+# Creo il grafico stacked area; l'asse x è discreto (intervalli di tempo)
+p <- ggplot(df_area, aes(x = Date, y = Area_km2, fill = LULCC, group = LULCC)) + 
+  geom_area(alpha = 0.8, linewidth = 0.5, colour = "black") +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  theme_minimal() +
+  ggtitle("Cambiamenti nell'uso del suolo nel tempo\n(Parco Nazionale del Golfo di Orosei e del Gennargentu)") +
+  labs(x = "Periodo", y = "Area (km²)", fill = "Uso del suolo") +
+  theme(
+    legend.position = "right",
+    plot.title       = element_text(hjust = 0.5, size = 20, face = "bold", color = "black", margin = margin(b = 15)),
+    axis.title.x     = element_text(size = 20, face = "bold", color = "black", margin = margin(t = 10)),
+    axis.title.y     = element_text(size = 20, face = "bold", color = "black", margin = margin(r = 10)),
+    axis.text        = element_text(size = 20, face = "bold", color = "black"),
+    legend.title     = element_text(size = 20, face = "bold", color = "black"),
+    legend.text      = element_text(size = 20, face = "bold", color = "black"),
+    panel.grid.major.y = element_line(color = "gray80", linewidth = 0.5),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5)
+  ) +
+  scale_x_discrete(expand = c(0, 0))
+
+# Mostro il grafico
+print(p)
+
+# Salvo il grafico in formato PNG
+ggsave("cambiamenti_uso_suolo.png", plot = p, width = 10, height = 6)

@@ -135,10 +135,10 @@ for (i in seq_along(periods)) {
             cat(sprintf("      Area: %s km², Numero di immagini: %d\n", 
                         ifelse(is.na(area), "NA", area), size))
             
-            if (!is.na(area) && !is.na(reference_area) && abs(area - reference_area) <= 1 && size >= 1) {
+            if (!is.na(area) && !is.na(reference_area) && abs(area - reference_area) <= 1 && size >= 1) { # 1 img per la soglia fillCloudCover, 20/25 per la soglia cloud_cover
                 min_cloud_cover_with_same_area <- cloud_cover
                 cat("      Condizione soddisfatta per la copertura nuvolosa minima.\n")
-                # Se voglio interrompere il ciclo interno una volta trovata la copertura minima, posso decommentare il break
+                # Se voglio interrompere il ciclo interno una volta trovata la copertura minima, posso de-commentare il break
                 # break
             }
         }, error = function(e) {
@@ -181,7 +181,7 @@ cat(sprintf("\nTempo totale di esecuzione: %s\n", total_time))
 # ====================================================
 
 # Definisco il percorso del file Excel
-output_excel_path <- "all_area_per_cloud_cover_results_+/-_5_1_img_Sila.xlsx"
+output_excel_path <- "all_area_per_cloud_cover_results_+/-_5_1_img_Sila.xlsx" # soglia fillCloudCover, almeno una immagine che copra l'Aoi
 
 # Creo il workbook e aggiungo i fogli
 wb <- createWorkbook()

@@ -1,0 +1,489 @@
+# Script 1: Calcolo e Aggregazione dell’Indice Dunn
+# Questo script esegue il calcolo dell'indice Dunn sui modelli SOM presenti in ciascuna cartella di parchi (cartelle che iniziano con "PN_"). 
+# Per ogni modello, per valori di K da 3 a 6, viene applicato il clustering kmeans e calcolato l'indice Dunn. 
+# I risultati vengono aggregati in un formato wide, raggruppati per parco e salvati in un file Excel denominato "Dunn_Index_Combined.xlsx".
+
+
+# Carico le librerie necessarie
+library(kohonen)    # Per la Self-Organizing Map
+library(cluster)    # Per metriche di clustering
+library(clValid)    # Per il calcolo dell'indice Dunn
+library(stringr)    # Per estrarre pattern dalle stringhe
+library(tidyr)      # Per trasformare i dati in formato wide
+library(dplyr)      # Per manipolare i data frame
+library(openxlsx)   # Per salvare i dati in Excel
+
+# Definisco una funzione per generare un nome breve a partire dal filepath
+short_name_som <- function(filepath) {
+  fname <- basename(filepath)
+  parco <- str_extract(fname, "(?<=PN_)[A-Za-z]+")
+  if (is.na(parco)) { parco <- "Unknown" }
+  years <- str_extract_all(fname, "\\d{4}")[[1]]
+  if (length(years) >= 2) {
+    year1 <- years[1]
+    year2 <- years[2]
+  } else {
+    year1 <- "Unknown"
+    year2 <- "Unknown"
+  }
+  return(paste(parco, year1, year2, "SOM", sep = "_"))
+}
+
+# Funzione per estrarre il nome del parco (la parte subito dopo "PN_")
+extract_parco <- function(filepath) {
+  fname <- basename(filepath)
+  parco <- str_extract(fname, "(?<=PN_)[A-Za-z]+")
+  if (is.na(parco)) { parco <- "Unknown" }
+  return(parco)
+}
+
+# Recupero le cartelle dei parchi (in "C:/" che iniziano con "PN_")
+pn_folders <- list.dirs("C:/", recursive = FALSE, full.names = TRUE)
+pn_folders <- pn_folders[grepl("^PN_", basename(pn_folders))]
+
+# Inizializzo la lista per raccogliere i dati dell'indice Dunn
+dunn_data_list <- list()
+kmax <- 6
+iter_max <- 100
+
+# Itero su ogni cartella (parco)
+for (pn_folder in pn_folders) {
+  # Cerco i file SOM (.rds) in ogni cartella (anche in sotto-cartelle)
+  som_files <- list.files(pn_folder, pattern = "\\.rds$", full.names = TRUE, recursive = TRUE)
+  if (length(som_files) == 0) next
+  
+  # Itero su ogni file SOM nel parco
+  for (som_file in som_files) {
+    cat("Analizzo il file:", som_file, "\n")
+    # Carico il modello SOM e ne estraggo i centroidi
+    som_model <- readRDS(som_file)
+    som_values <- som_model$codes[[1]]
+    
+    # Calcolo la matrice delle distanze euclidea
+    dist_mat <- dist(som_values, method = "euclidean")
+    
+    # Calcolo l'indice Dunn per valori di K da 3 a kmax (3-6)
+    dunn_results <- data.frame(clusters = integer(), dunn_index = numeric(), stringsAsFactors = FALSE)
+    for (k in 3:kmax) {
+      set.seed(123)
+      km_res <- kmeans(som_values, centers = k, iter.max = iter_max)
+      dunn_index <- dunn(dist(som_values), km_res$cluster)
+      dunn_results <- rbind(dunn_results, data.frame(clusters = k, dunn_index = dunn_index))
+    }
+    
+    # Aggiungo le informazioni sul file e sul parco
+    dunn_results$File  <- short_name_som(som_file)
+    dunn_results$Parco <- extract_parco(som_file)
+    
+    dunn_data_list[[ short_name_som(som_file) ]] <- dunn_results
+  }
+}
+
+# Combino tutti i dati raccolti in un unico data frame
+dunn_data <- do.call(rbind, dunn_data_list)
+
+# Trasformo i dati in formato wide: una riga per file e colonne per K=3,4,5,6
+dunn_wide <- pivot_wider(dunn_data, 
+                         id_cols = c(File, Parco), 
+                         names_from = clusters, 
+                         values_from = dunn_index, 
+                         names_prefix = "K")
+
+# Calcolo la media per ciascun parco aggregando i risultati dei modelli SOM
+final_table_dunn <- dunn_wide %>%
+  group_by(Parco) %>%
+  summarise(across(starts_with("K"), ~ mean(.x, na.rm = TRUE))) %>%
+  ungroup()
+
+# Salvo il risultato in un file Excel
+write.xlsx(final_table_dunn, file = "Dunn_Index_Combined.xlsx")
+cat("I risultati dell'indice Dunn sono stati salvati in 'Dunn_Index_Combined.xlsx'\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Script 2: Calcolo e Aggregazione dell’Indice AWS (Average Silhouette Width, Combined)
+# Questo script calcola l’indice AWS (Average Silhouette Width) per i modelli SOM presenti nelle cartelle dei parchi. 
+# Per ogni file SOM, per valori di K da 3 a 6, viene eseguito il clustering kmeans e calcolata la silhouette media. 
+# I risultati vengono trasformati in formato wide e aggregati per parco; infine, il tutto viene salvato in un file Excel "AWS_Combined.xlsx".
+
+
+# Carico le librerie necessarie
+library(kohonen)    # Per la Self-Organizing Map
+library(cluster)    # Per kmeans() e silhouette()
+library(stringr)    # Per estrarre pattern dalle stringhe
+library(tidyr)      # Per trasformare i dati in formato wide
+library(dplyr)      # Per manipolare i data frame
+library(openxlsx)   # Per salvare i dati in Excel
+
+# Riutilizzo le funzioni ausiliarie per il nome breve e per estrarre il parco
+short_name_som <- function(filepath) {
+  fname <- basename(filepath)
+  parco <- str_extract(fname, "(?<=PN_)[A-Za-z]+")
+  if (is.na(parco)) { parco <- "Unknown" }
+  years <- str_extract_all(fname, "\\d{4}")[[1]]
+  if (length(years) >= 2) {
+    year1 <- years[1]
+    year2 <- years[2]
+  } else {
+    year1 <- "Unknown"
+    year2 <- "Unknown"
+  }
+  return(paste(parco, year1, year2, "SOM", sep = "_"))
+}
+
+extract_parco <- function(filepath) {
+  fname <- basename(filepath)
+  parco <- str_extract(fname, "(?<=PN_)[A-Za-z]+")
+  if (is.na(parco)) { parco <- "Unknown" }
+  return(parco)
+}
+
+# Recupero le cartelle dei parchi (in "C:/" che iniziano con "PN_")
+pn_folders <- list.dirs("C:/", recursive = FALSE, full.names = TRUE)
+pn_folders <- pn_folders[grepl("^PN_", basename(pn_folders))]
+
+# Inizializzo la lista per raccogliere i dati dell'indice AWS
+aws_data_list <- list()
+ks <- 3:6
+
+# Itero su ogni cartella (parco)
+for (pn_folder in pn_folders) {
+  som_files <- list.files(pn_folder, pattern = "\\.rds$", full.names = TRUE, recursive = TRUE)
+  if (length(som_files) == 0) next
+  
+  # Itero su ogni file SOM nel parco
+  for (som_file in som_files) {
+    cat("Processo il file:", som_file, "\n")
+    som_model <- readRDS(som_file)
+    som_values <- som_model$codes[[1]]
+    
+    # Calcolo la matrice delle distanze euclidea
+    dist_mat <- dist(som_values, method = "euclidean")
+    
+    # Calcolo l'indice AWS per valori di K da 3 a 6
+    aws_results <- data.frame(k = integer(), AWS = numeric(), stringsAsFactors = FALSE)
+    for (k in ks) {
+      set.seed(123)
+      km_res <- kmeans(som_values, centers = k, iter.max = 100)
+      sil_obj <- silhouette(km_res$cluster, dist_mat)
+      aws_val <- mean(sil_obj[, "sil_width"])
+      aws_results <- rbind(aws_results, data.frame(k = k, AWS = aws_val))
+    }
+    
+    aws_results$File  <- short_name_som(som_file)
+    aws_results$Parco <- extract_parco(som_file)
+    
+    aws_data_list[[ short_name_som(som_file) ]] <- aws_results
+  }
+}
+
+# Combino i risultati in un unico data frame
+aws_data <- do.call(rbind, aws_data_list)
+
+# Trasformo i dati in formato wide: una riga per file e colonne per K (3,4,5,6)
+aws_wide <- pivot_wider(aws_data, 
+                        id_cols = c(File, Parco), 
+                        names_from = k, 
+                        values_from = AWS, 
+                        names_prefix = "K")
+
+# Calcolo la media per ciascun parco aggregando i risultati dei modelli SOM
+final_table_aws <- aws_wide %>%
+  group_by(Parco) %>%
+  summarise(across(starts_with("K"), ~ mean(.x, na.rm = TRUE))) %>%
+  ungroup()
+
+# Salvo il risultato in un file Excel
+write.xlsx(final_table_aws, file = "AWS_Combined.xlsx")
+cat("I risultati dell'indice AWS sono stati salvati in 'AWS_Combined.xlsx'\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Script 3: Calcolo dell’Indice Dunn per K da 3 a 6 (Grafico Combinato)
+# Questo script esegue il calcolo dell'indice Dunn per ogni modello SOM (per valori di K da 3 a 6) 
+# e crea un grafico combinato che mostra come varia l'indice Dunn al variare del numero di cluster per ciascun file. 
+# L'obiettivo è confrontare la qualità del clustering tra i modelli, visualizzando il Dunn Index.
+
+
+# Carico le librerie necessarie
+library(kohonen)    # Per la Self-Organizing Map
+library(cluster)    # Per kmeans() e silhouette()
+library(clValid)    # Per il calcolo dell'indice Dunn
+library(ggplot2)    # Per la creazione dei grafici
+library(stringr)    # Per estrarre pattern dalle stringhe
+
+# Definisco una funzione per generare un nome breve a partire dal filepath
+short_name_som <- function(filepath) {
+    fname <- basename(filepath)
+    parco <- str_extract(fname, "(?<=PN_)[A-Za-z]+")
+    if (is.na(parco)) { parco <- "Unknown" }
+    years <- str_extract_all(fname, "\\d{4}")[[1]]
+    if (length(years) >= 2) {
+        year1 <- years[1]
+        year2 <- years[2]
+    } else {
+        year1 <- "Unknown"
+        year2 <- "Unknown"
+    }
+    return(paste(parco, year1, year2, "SOM", sep = "_"))
+}
+
+# Definisco la cartella contenente i modelli SOM (ad es. per Aspromonte)
+som_folder <- "C:/PN_Aspromonte/som_Aspromonte/"
+
+# Ottengo tutti i file .rds presenti nella cartella
+som_files <- list.files(som_folder, pattern = "\\.rds$", full.names = TRUE)
+
+# Inizializzo una lista per raccogliere i dati dell'indice Dunn
+dunn_data_list <- list()
+
+# Parametri per kmeans
+kmax <- 6
+iter_max <- 100
+
+# Ciclo su ogni file SOM nella cartella
+for (som_file in som_files) {
+    cat("\nAnalizzo il file:", som_file, "\n")
+    som_model <- readRDS(som_file)
+    som_values <- som_model$codes[[1]]
+    
+    # Creo un data frame per memorizzare i valori dell'indice Dunn per K da 3 a 6
+    dunn_results <- data.frame(clusters = integer(), dunn_index = numeric(), stringsAsFactors = FALSE)
+    for (k in 3:kmax) {
+      set.seed(123)
+      km_res <- kmeans(som_values, centers = k, iter.max = iter_max)
+      dunn_index <- dunn(dist(som_values), km_res$cluster)
+      dunn_results <- rbind(dunn_results, data.frame(clusters = k, dunn_index = dunn_index))
+    }
+    
+    dunn_results$File <- short_name_som(som_file)
+    dunn_data_list[[ short_name_som(som_file) ]] <- dunn_results
+}
+
+# Combino i dati raccolti in un unico data frame
+dunn_data <- do.call(rbind, dunn_data_list)
+
+# Creo un grafico combinato: indice Dunn in funzione del numero di cluster per ogni file
+p_dunn <- ggplot(dunn_data, aes(x = clusters, y = dunn_index, group = File, color = File)) +
+    geom_line(size = 1.5) +
+    geom_point(size = 5) +
+    labs(title = "Dunn Index - Combinato",
+         x     = "Numero di cluster",
+         y     = "Dunn Index Value") +
+    theme_minimal() +
+    theme(
+        plot.title   = element_text(size = 35, face = "bold"),
+        axis.title   = element_text(size = 35),
+        axis.text    = element_text(size = 35),
+        legend.title = element_text(size = 35),
+        legend.text  = element_text(size = 35)
+    ) +
+    scale_color_viridis_d(option = "viridis")
+
+# Visualizzo il grafico
+print(p_dunn)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Script 4: Calcolo e Visualizzazione dell’AWS per Cluster (K = 3 e 5) con K-means e HClust
+# Questo script elabora i modelli SOM presenti nella cartella "C:/PN_Sila/som_Sila/" per calcolare e visualizzare le informazioni relative alla silhouette (AWS) 
+# sia per il clustering kmeans che per il clustering gerarchico (hclust, metodo Ward.D2).
+# Per ciascun file e per K uguale a 3 e 5, vengono creati grafici di silhouette e tabelle riassuntive (che includono l’average silhouette e le dimensioni dei cluster). 
+# I grafici finali per kmeans e hclust vengono visualizzati utilizzando le funzioni di grid.
+
+
+# Carico le librerie necessarie
+library(kohonen)      # Per la Self-Organizing Map
+library(cluster)      # Per kmeans(), silhouette(), hclust(), cutree()
+library(factoextra)   # Per fviz_silhouette()
+library(ggplot2)      # Per la composizione dei grafici
+library(gridExtra)    # Per grid.arrange() e tableGrob()
+library(dplyr)        # Per operazioni sui data frame
+library(tools)        # Per file_path_sans_ext()
+library(grid)         # Per grid.draw()
+
+# Imposto la working directory
+setwd("C:/PN_Sila")
+
+# Definisco la cartella contenente i modelli SOM (Sila)
+som_folder <- "C:/PN_Sila/som_Sila/"
+
+# Creo le cartelle di output per i grafici, se non esistono
+output_dir_km <- file.path("kmeans_plots")
+if (!dir.exists(output_dir_km)) {
+  dir.create(output_dir_km, recursive = TRUE)
+}
+
+output_dir_hc <- file.path("hclust_plots")
+if (!dir.exists(output_dir_hc)) {
+  dir.create(output_dir_hc, recursive = TRUE)
+}
+
+# Recupero tutti i file .rds presenti nella cartella dei modelli SOM
+som_files <- list.files(som_folder, pattern = "\\.rds$", full.names = TRUE)
+if (length(som_files) == 0) {
+  stop("Nessun file .rds trovato nella cartella!")
+}
+
+# Definisco i valori di K da testare: solo 3 e 5
+ks <- c(3, 5)
+
+
+# FUNZIONE AUSILIARIA per creare la tabella di informazioni sulla silhouette
+
+creaTabellaSilinfo <- function(silinfo, cluster_sizes) {
+  clusters <- names(silinfo$clus.avg.widths)
+  overall_avg <- round(silinfo$avg.width, 3)
+  total_size <- sum(cluster_sizes)
+  
+  df_info <- data.frame(
+    Metric = c("Avg Silhouette", "Cluster Size"),
+    Overall = c(overall_avg, total_size),
+    stringsAsFactors = FALSE
+  )
+  
+  for(cl in clusters) {
+    avg_sil <- round(silinfo$clus.avg.widths[cl], 3)
+    size_val <- cluster_sizes[as.numeric(cl)]
+    df_info[[cl]] <- c(avg_sil, size_val)
+  }
+  rownames(df_info) <- df_info$Metric
+  df_info$Metric <- NULL
+  tableGrob(df_info, rows = rownames(df_info))
+}
+
+
+# Elaboro i modelli SOM per Sila
+
+for(som_file in som_files) {
+  
+  cat("Processo il file:", som_file, "\n")
+  
+  # Carico il modello SOM ed estraggo i centroidi
+  som_model <- readRDS(som_file)
+  som_values <- som_model$codes[[1]]
+  
+  # Calcolo la matrice delle distanze euclidea (comune a entrambi gli algoritmi)
+  dist_euclidean <- dist(som_values, method = "euclidean")
+  
+ 
+  # 1. K-MEANS (distanza Euclidea)
+  
+  km_composite_list <- list()
+  for (k in ks) {
+    km.res <- kmeans(som_values, centers = k, iter.max = 100, nstart = 20)
+    km.sil <- silhouette(km.res$cluster, dist_euclidean)
+    
+    p <- fviz_silhouette(km.sil, palette = "jco", 
+                         ggtheme = theme_classic(), 
+                         print.summary = FALSE) +
+      ggtitle(paste("K-means (K =", k, ")"))
+    
+    silinfo <- list(
+      avg.width = mean(km.sil[, "sil_width"]),
+      clus.avg.widths = tapply(km.sil[, "sil_width"], km.res$cluster, mean)
+    )
+    
+    tbl <- creaTabellaSilinfo(silinfo, km.res$size)
+    
+    composite <- grid.arrange(p, tbl, ncol = 1, heights = c(3, 1))
+    km_composite_list[[paste0("K=", k)]] <- composite
+  }
+  
+  final_km_plot <- grid.arrange(grobs = km_composite_list, ncol = 2,
+                                top = paste("K-means: Silhouette Plots e Informazioni (K = 3 e K = 5)\n", basename(som_file)))
+  
+ 
+  # 2. CLUSTERING GERARCHICO (Ward.D2)
+  
+  hc.res <- hclust(dist_euclidean, method = "ward.D2")
+  hc_composite_list <- list()
+  for (k in ks) {
+    hc.clusters <- cutree(hc.res, k = k)
+    hc.sil <- silhouette(hc.clusters, dist_euclidean)
+    
+    p <- fviz_silhouette(hc.sil, palette = "jco", 
+                         ggtheme = theme_classic(), 
+                         print.summary = FALSE) +
+      ggtitle(paste("HClust (Ward.D2, K =", k, ")"))
+    
+    avg_width <- mean(hc.sil[, "sil_width"])
+    clus_avg <- tapply(hc.sil[, "sil_width"], hc.clusters, mean)
+    cluster_sizes <- as.numeric(table(hc.clusters))
+    
+    silinfo <- list(avg.width = avg_width, clus.avg.widths = clus_avg)
+    
+    tbl <- creaTabellaSilinfo(silinfo, cluster_sizes)
+    
+    composite <- grid.arrange(p, tbl, ncol = 1, heights = c(3, 1))
+    hc_composite_list[[paste0("K=", k)]] <- composite
+  }
+  
+  final_hc_plot <- grid.arrange(grobs = hc_composite_list, ncol = 2,
+                                top = paste("HClust (Ward.D2): Silhouette Plots e Informazioni (K = 3 e K = 5)\n", basename(som_file)))
+  
+
+  # Visualizzo i grafici finali
+  
+  grid::grid.newpage()
+  grid::grid.draw(final_km_plot)
+  
+  grid::grid.newpage()
+  grid::grid.draw(final_hc_plot)
+  
+  cat("Plot K-means e HClust visualizzati per il file:", som_file, "\n")
+}
+
+
+
+
+
+

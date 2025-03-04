@@ -1,0 +1,223 @@
+# Script 1: Metodo "K-means"
+
+
+# Carico le librerie necessarie
+library(kohonen)    # Per leggere i modelli SOM
+library(NbClust)    # Per determinare il numero ottimale di cluster
+library(dplyr)      # Per organizzare i risultati
+library(openxlsx)   # Per salvare i risultati in Excel
+
+# Imposto il seed per garantire la riproducibilità
+set.seed(123)
+
+# Recupero tutte le cartelle in "C:/" che iniziano con "PN_"
+pn_folders <- list.files("C:/", pattern = "^PN_", full.names = TRUE)
+pn_folders <- pn_folders[file.info(pn_folders)$isdir]
+
+# Itero su ogni cartella "PN_"
+for (park_folder in pn_folders) {
+  
+  # Estraggo il nome del parco rimuovendo "PN_"
+  park_name <- gsub("^PN_", "", basename(park_folder))
+  cat("\nElaboro il parco:", park_name, "\n")
+  
+  # Definisco la directory contenente i modelli SOM per il parco corrente
+  som_dir <- file.path(park_folder, paste0("som_", park_name))
+  
+  # Se la directory non esiste, salto questo parco
+  if (!dir.exists(som_dir)) {
+    cat("La directory", som_dir, "non esiste. Salto questo parco.\n")
+    next
+  }
+  
+  # Recupero tutti i file .rds presenti nella directory SOM
+  rds_files <- list.files(path = som_dir, pattern = "\\.rds$", full.names = TRUE)
+  
+  if (length(rds_files) == 0) {
+    cat("Nessun file .rds trovato in", som_dir, "\n")
+    next
+  }
+  
+  # Analizzo il numero ottimale di cluster per ogni file SOM
+  results <- lapply(rds_files, function(rds_path) {
+    
+    cat("\nAnalizzo il file:", basename(rds_path), "\n")
+    
+    # Carico il modello SOM dal file .rds
+    som_model <- readRDS(rds_path)
+    
+    # Estraggo i codici della SOM (i centroidi)
+    som_values <- som_model$codes[[1]]
+    
+    # Calcolo il numero ottimale di cluster utilizzando NbClust con il metodo "kmeans"
+    nbclust_result <- NbClust(
+      data = som_values, 
+      distance = "euclidean", 
+      min.nc = 2, 
+      max.nc = 10, 
+      method = "kmeans", 
+      index = "all"
+    )
+    
+    # Estraggo i conteggi dei cluster scelti dagli indici
+    cluster_counts <- table(nbclust_result$Best.nc[1, ])
+    sorted_counts <- sort(cluster_counts, decreasing = TRUE)
+    
+    # Se vengono restituite meno di due opzioni, assegno NA al secondo valore
+    if (length(sorted_counts) < 2) {
+      top_two_clusters <- c(as.numeric(names(sorted_counts))[1], NA)
+      top_two_supports <- c(as.numeric(sorted_counts)[1], NA)
+    } else {
+      top_two_clusters <- as.numeric(names(sorted_counts)[1:2])
+      top_two_supports <- as.numeric(sorted_counts)[1:2]
+    }
+    
+    # Estraggo il range di anni dal nome del file (ricerca di due numeri a 4 cifre)
+    dates <- regmatches(basename(rds_path), gregexpr("\\d{4}", basename(rds_path)))[[1]]
+    year_range <- if (length(dates) == 2) paste(dates[1], "-", dates[2]) else "Range non trovato"
+    
+    # Ritorno un tibble con i risultati per il file corrente
+    tibble(
+      File = basename(rds_path),
+      Year_Range = year_range,
+      First_Optimal_Cluster = top_two_clusters[1],
+      First_Support = top_two_supports[1],
+      Second_Optimal_Cluster = top_two_clusters[2],
+      Second_Support = top_two_supports[2],
+      Method = "kmeans"
+    )
+  })
+  
+  # Combino i risultati in un unico data frame per il parco corrente
+  results_summary <- bind_rows(results)
+  
+  # Visualizzo la tabella dei risultati per il parco corrente
+  print(results_summary)
+  
+  # Salvo i risultati in formato Excel nella cartella del parco
+  output_excel_path <- file.path(park_folder, "nbclust_best_results.xlsx")
+  write.xlsx(results_summary, file = output_excel_path, rowNames = FALSE)
+  
+  cat("\nRisultati salvati in:", output_excel_path, "\n")
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# # Script 2: Metodo "ward.D2"
+
+
+# Carico le librerie necessarie
+library(kohonen)    # Per leggere i modelli SOM
+library(NbClust)    # Per determinare il numero ottimale di cluster
+library(dplyr)      # Per organizzare i risultati
+library(openxlsx)   # Per salvare i risultati in Excel
+
+# Imposto il seed per garantire la riproducibilità
+set.seed(123)
+
+# Recupero tutte le cartelle in "C:/" che iniziano con "PN_"
+pn_folders <- list.files("C:/", pattern = "^PN_", full.names = TRUE)
+pn_folders <- pn_folders[file.info(pn_folders)$isdir]
+
+# Itero su ogni cartella "PN_"
+for (park_folder in pn_folders) {
+  
+  # Estraggo il nome del parco rimuovendo "PN_"
+  park_name <- gsub("^PN_", "", basename(park_folder))
+  cat("\nElaboro il parco:", park_name, "\n")
+  
+  # Definisco la directory contenente i modelli SOM per il parco corrente
+  som_dir <- file.path(park_folder, paste0("som_", park_name))
+  
+  # Se la directory non esiste, salto questo parco
+  if (!dir.exists(som_dir)) {
+    cat("La directory", som_dir, "non esiste. Salto questo parco.\n")
+    next
+  }
+  
+  # Recupero tutti i file .rds presenti nella directory SOM
+  rds_files <- list.files(path = som_dir, pattern = "\\.rds$", full.names = TRUE)
+  
+  if (length(rds_files) == 0) {
+    cat("Nessun file .rds trovato in", som_dir, "\n")
+    next
+  }
+  
+  # Analizzo il numero ottimale di cluster per ogni file SOM
+  results <- lapply(rds_files, function(rds_path) {
+    
+    cat("\nAnalizzo il file:", basename(rds_path), "\n")
+    
+    # Carico il modello SOM dal file .rds
+    som_model <- readRDS(rds_path)
+    
+    # Estraggo i codici della SOM (i centroidi)
+    som_values <- som_model$codes[[1]]
+    
+    # Calcolo il numero ottimale di cluster utilizzando NbClust con il metodo "ward.D2"
+    nbclust_result <- NbClust(
+      data = som_values, 
+      distance = "euclidean", 
+      min.nc = 2, 
+      max.nc = 10, 
+      method = "ward.D2", 
+      index = "all"
+    )
+    
+    # Estraggo i conteggi dei cluster scelti dagli indici
+    cluster_counts <- table(nbclust_result$Best.nc[1, ])
+    sorted_counts <- sort(cluster_counts, decreasing = TRUE)
+    
+    # Se vengono restituite meno di due opzioni, assegno NA al secondo valore
+    if (length(sorted_counts) < 2) {
+      top_two_clusters <- c(as.numeric(names(sorted_counts))[1], NA)
+      top_two_supports <- c(as.numeric(sorted_counts)[1], NA)
+    } else {
+      top_two_clusters <- as.numeric(names(sorted_counts)[1:2])
+      top_two_supports <- as.numeric(sorted_counts)[1:2]
+    }
+    
+    # Estraggo il range di anni dal nome del file (ricerca di due numeri a 4 cifre)
+    dates <- regmatches(basename(rds_path), gregexpr("\\d{4}", basename(rds_path)))[[1]]
+    year_range <- if (length(dates) == 2) paste(dates[1], "-", dates[2]) else "Range non trovato"
+    
+    # Ritorno un tibble con i risultati per il file corrente
+    tibble(
+      File = basename(rds_path),
+      Year_Range = year_range,
+      First_Optimal_Cluster = top_two_clusters[1],
+      First_Support = top_two_supports[1],
+      Second_Optimal_Cluster = top_two_clusters[2],
+      Second_Support = top_two_supports[2],
+      Method = "ward.D2"
+    )
+  })
+  
+  # Combino i risultati in un unico data frame per il parco corrente
+  results_summary <- bind_rows(results)
+  
+  # Visualizzo la tabella dei risultati per il parco corrente
+  print(results_summary)
+  
+  # Salvo i risultati in formato Excel nella cartella del parco
+  output_excel_path <- file.path(park_folder, "nbclust_best_results.xlsx")
+  write.xlsx(results_summary, file = output_excel_path, rowNames = FALSE)
+  
+  cat("\nRisultati salvati in:", output_excel_path, "\n")
+}

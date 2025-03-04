@@ -1,6 +1,7 @@
 # Per ogni valore di k (numero di cluster) da 2 a 10, viene calcolata l’Average Silhouette Width (ASW) per valutare la qualità del clustering. 
-# I risultati vengono poi combinati e visualizzati in un grafico che confronta i diversi metodi. Per il clustering gerarchico sono testate differenti distanze
-# pur venendo mantenuto sempre il metodo ward.D2. K-means è testato sempre con la distanza euclidea
+# I risultati vengono poi combinati e visualizzati in un grafico che confronta i diversi metodi. 
+# Per il clustering gerarchico sono testate differenti distanze pur venendo mantenuto sempre il metodo ward.D2. 
+# K-means è testato sempre con la distanza euclidea
 
 
 # ================================================

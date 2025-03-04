@@ -1,3 +1,8 @@
+#codice R per definire le soglie di copertura nuvolosa per il codice GEE
+#si imposta almeno 1 img per definire fillCloudCover, si impostano 20/25 img per definire la soglia cloudCover
+#tollerenza impostata a +/- 5 kilometri quadrati
+
+
 # Carico le librerie necessarie
 library(rgee)
 library(openxlsx)

@@ -1,0 +1,137 @@
+# Clustering K-means reiterato con calcolo delle aree e salvataggio in Excel
+
+
+# Carico le librerie necessarie
+library(terra)        # Per la gestione dei raster
+library(kohonen)      # Per lavorare con i modelli SOM
+library(cluster)      # Per eseguire il clustering e calcolare le silhouette
+library(leaflet)      # Per creare mappe interattive
+library(viridisLite)  # Per generare palette di colori
+library(openxlsx)     # Per salvare i risultati in formato Excel
+
+# Definisco le cartelle di input e output
+tif_dir <- "C:/PN_Sila/"                    # Directory contenente i file .tif
+rds_dir <- "C:/PN_Sila/som_Sila/"           # Directory contenente i modelli SOM (.rds)
+output_dir <- "C:/PN_Sila/output_raster/"   # Directory dove salverò i raster classificati
+excel_file <- "C:/PN_Sila/cluster_areas.xlsx"  # Percorso del file Excel da creare
+
+# Creo la cartella di output se non esiste già
+if (!dir.exists(output_dir)) {
+    dir.create(output_dir)
+}
+
+# Inizializzo una lista per memorizzare i risultati delle aree dei cluster
+results_list <- list()
+
+# Recupero tutti i file .tif presenti nella directory specificata
+tif_files <- list.files(path = tif_dir, pattern = "\\.tif$", full.names = TRUE)
+
+# Itero su ogni file .tif trovato
+for (tif_path in tif_files) {
+    
+    # Costruisco il percorso del file RDS corrispondente (assumo che il nome del file TIF venga usato per il modello SOM)
+    rds_name <- paste0(basename(tif_path), "_som_model.rds")
+    rds_path <- file.path(rds_dir, rds_name)
+    
+    # Se il file RDS corrispondente non esiste, salto questo file
+    if (!file.exists(rds_path)) {
+        cat("File RDS corrispondente non trovato per:", tif_path, "\n")
+        next
+    }
+    
+    cat("\nProcesso il file:", tif_path, "con il modello:", rds_path, "\n")
+    
+    # Estraggo le date dal nome del file (ricerca di pattern nel formato YYYY-MM-DD)
+    dates <- regmatches(basename(tif_path), gregexpr("\\d{4}-\\d{2}-\\d{2}", basename(tif_path)))[[1]]
+    start_date <- ifelse(length(dates) >= 1, dates[1], "Data_iniziale")
+    end_date <- ifelse(length(dates) >= 2, dates[2], "Data_finale")
+    date_label <- paste(start_date, "-", end_date)  # Creo un'etichetta basata sulle date
+    
+    # Carico il raster e il modello SOM
+    img <- rast(tif_path)                   # Carico il raster dal file TIF
+    som_model <- readRDS(rds_path)            # Carico il modello SOM dal file RDS
+    som_values <- som_model$codes[[1]]        # Estraggo i codebook vectors (centroidi)
+    
+    # Imposto il seed per garantire risultati riproducibili
+    set.seed(123)
+    
+    # Eseguo il clustering K-means sul vettore SOM
+    optimal_clusters <- 5                   # Numero di cluster predefinito
+    kmeans_result <- kmeans(som_values, centers = optimal_clusters, nstart = 100, iter.max = 500)
+    cat("Clustering completato con", optimal_clusters, "cluster.\n")
+    
+    # Creo un raster classificato partendo dal raster originale
+    classified_raster <- rast(img)          # Faccio una copia del raster originale
+    values(classified_raster) <- NA          # Inizializzo tutti i pixel a NA
+    mask <- !is.na(values(img[[1]]))         # Creo una maschera per i pixel validi
+    # Assegno ai pixel validi il cluster corrispondente; uso som_model$unit.classif per mappare i centroidi ai pixel
+    values(classified_raster)[mask] <- kmeans_result$cluster[som_model$unit.classif]
+    classified_raster <- classified_raster[[1]]  # Prendo solo il primo layer per avere una mappa classificata
+    
+    # Calcolo l'area dei cluster (in km²) utilizzando la funzione expanse
+    area_totale <- expanse(classified_raster, byValue = TRUE, unit = "km")
+    area_totale <- area_totale[order(area_totale$value), ]  # Ordino per identificatore di cluster
+    
+    # Creo una tabella con i dati: etichetta delle date, identificativo del cluster, area e campo vuoto per LULCC
+    cluster_info <- data.frame(
+        Date = date_label,
+        Cluster = paste("Cluster", area_totale$value),
+        Area_km2 = round(area_totale$area, 2),
+        LULCC = NA
+    )
+    
+    # Aggiungo la tabella dei risultati alla lista
+    results_list[[date_label]] <- cluster_info
+    
+    # Salvo il raster classificato in output
+    output_file <- file.path(output_dir, paste0(basename(tif_path), "_classified.tif"))
+    writeRaster(classified_raster, filename = output_file, overwrite = TRUE)
+    cat("Raster classificato salvato in:", output_file, "\n")
+    
+    # Creo una mappa interattiva con Leaflet per visualizzare il raster classificato
+    col_pal <- viridisLite::viridis(length(area_totale$value))
+    
+    color_pal <- colorNumeric(
+        palette = col_pal,
+        domain = area_totale$value,
+        na.color = "transparent"
+    )
+    
+    legend_title <- paste0("Cluster (", date_label, ")")
+    
+    leaflet_map <- leaflet() %>%
+        addTiles(group = "OpenStreetMap") %>%
+        addProviderTiles("Esri.WorldImagery", group = "Immagine Satellitare") %>%
+        addProviderTiles("CartoDB.Positron", group = "Mappa Chiara") %>%
+        addRasterImage(
+            classified_raster, 
+            colors = color_pal, 
+            opacity = 0.8,
+            project = TRUE,
+            group = "Raster Classificato"
+        ) %>%
+        addLegend(
+            position = "bottomright",
+            colors = col_pal,
+            labels = paste("Cluster", area_totale$value, "(", round(area_totale$area, 2), "km²)"),
+            title = legend_title,
+            opacity = 1
+        ) %>%
+        addLayersControl(
+            baseGroups = c("OpenStreetMap", "Immagine Satellitare", "Mappa Chiara"),
+            overlayGroups = c("Raster Classificato"),
+            options = layersControlOptions(collapsed = FALSE),
+            position = "topright"
+        )
+    
+    # Visualizzo la mappa interattiva
+    print(leaflet_map)
+    cat("Elaborazione completata per:", tif_path, "\n")
+}
+
+# Unisco tutte le tabelle dei risultati in un unico data frame
+final_results <- do.call(rbind, results_list)
+
+# Salvo i risultati aggregati in un file Excel
+write.xlsx(final_results, file = excel_file, rowNames = FALSE)
+cat("File Excel salvato in:", excel_file, "\n")

@@ -1,0 +1,81 @@
+# Codice R per l'individuazione della formula ottimale per determinare la griglia di neuroni per la rete neurale SOM
+# Esempio realizzato sul Parco Nazionale delle Dolomiti Bellunesi per esigenze comuputazionali
+# QuantizationError, ExplainedVariance, TopographicError, KaskiLagusError    
+
+
+# Carico le librerie necessarie
+library(kohonen)
+library(aweSOM)
+library(terra)
+library(openxlsx)  # Per salvare i risultati in formato Excel
+
+# Definisco i percorsi delle cartelle e assegno un'etichetta per il tipo di griglia
+folders <- list(
+  "default_map"   = "C:/PN_Dolomiti_Bellunesi/som_Dolomiti_Bellunesi",
+  "5_4_radice_n"  = "C:/PN_Dolomiti_Bellunesi/som_Dolomiti_Bellunesi_5_4_radice_n",
+  "radice_n"      = "C:/PN_Dolomiti_Bellunesi/som_Dolomiti_Bellunesi_radice_n"
+)
+
+# Creo una lista per salvare i risultati
+results_list <- list()
+
+# Itero su ciascuna cartella (tipo di griglia)
+for(grid_type in names(folders)) {
+  folder <- folders[[grid_type]]
+  
+  # Cerco tutti i file dei modelli SOM (file che terminano in _som_model.rds)
+  file_list <- list.files(path = folder, pattern = "_som_model\\.rds$", full.names = TRUE)
+  
+  if(length(file_list) > 0) {
+    for(file_model in file_list) {
+      cat("Carico il modello da:", file_model, "\n")
+      
+      # Carico il modello SOM
+      som_model <- readRDS(file_model)
+      
+      # Verifico se il modello contiene i dati di training e li estraggo
+      if (!is.null(som_model$data) && length(som_model$data) > 0) {
+        training_data <- som_model$data[[1]]
+      } else {
+        warning(paste("Il modello", file_model, "non contiene dati di training."))
+        next
+      }
+      
+      # Calcolo le metriche di qualità usando i dati di training
+      quality <- somQuality(som_model, as.matrix(training_data))
+      
+      # Estraggo informazioni sulla griglia del modello
+      grid_info <- som_model$grid
+      x_dim <- grid_info$xdim
+      y_dim <- grid_info$ydim
+      n_nodes <- x_dim * y_dim
+      
+      # Creo una riga con tutte le informazioni e la aggiungo alla lista dei risultati
+      results_list[[length(results_list) + 1]] <- data.frame(
+        GridType           = grid_type,
+        ModelFile          = basename(file_model),
+        Nodes              = n_nodes,
+        X_dim              = x_dim,
+        Y_dim              = y_dim,
+        QuantizationError  = quality$err.quant,
+        ExplainedVariance  = quality$err.varratio,
+        TopographicError   = quality$err.topo,
+        KaskiLagusError    = quality$err.kaski,
+        stringsAsFactors   = FALSE
+      )
+    }
+  } else {
+    cat("Non ho trovato nessun modello SOM in:", folder, "\n")
+  }
+}
+
+# Unisco tutte le righe in un unico data frame
+results_df <- do.call(rbind, results_list)
+
+# Visualizzo la tabella dei risultati
+print(results_df)
+
+# Salvo il data frame in un file Excel nella cartella specificata
+output_file <- "C:/PN_Dolomiti_Bellunesi/risultati_SOM.xlsx"
+write.xlsx(results_df, output_file)
+cat("Risultati salvati in:", output_file, "\n")

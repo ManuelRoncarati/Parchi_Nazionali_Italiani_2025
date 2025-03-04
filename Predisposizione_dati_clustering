@@ -1,0 +1,278 @@
+# I quattro codici presentati si riferiscono alla verifica della predisposizione dei dati al clustering
+
+
+# ================================================
+# Codice 1: PCA sui Dati Grezzi (Pre‑SOM)
+# ================================================
+
+# Carico le librerie necessarie per l'analisi dei dati raster e la PCA
+library(terra)
+library(factoextra)
+library(ggplot2)
+library(stringr)
+
+# Definisco una funzione per estrarre un titolo breve dal nome del file.
+# Questa funzione estrae il nome del parco e due anni dal filename e li combina in un unico titolo.
+short_name_som <- function(filepath) {
+  fname <- basename(filepath)
+  parco <- str_extract(fname, "(?<=PN_)[A-Za-z]+")
+  if (is.na(parco)) { parco <- "Unknown" }
+  years <- str_extract_all(fname, "\\d{4}")[[1]]
+  if (length(years) >= 2) {
+    year1 <- years[1]
+    year2 <- years[2]
+  } else {
+    year1 <- "Unknown"
+    year2 <- "Unknown"
+  }
+  return(paste(parco, year1, year2, "SOM", sep = "_"))
+}
+
+# Specifico la cartella contenente le immagini .tif e ottengo la lista dei file
+image_dir <- "C:/PN_Sila"
+image_files <- list.files(path = image_dir, pattern = "\\.tif$", full.names = TRUE)
+
+# Seleziono il primo file .tif trovato; se non ne trovo nessuno, interrompo l'esecuzione
+if (length(image_files) == 0) {
+    stop("Nessuna immagine .tif trovata nella cartella.")
+}
+first_image <- image_files[1]
+
+# Carico il raster multibanda dal file selezionato
+raster_image <- rast(first_image)
+
+# Calcolo gli indici spettrali:
+# NDVI = (NIR - Red) / (NIR + Red) (assumendo banda 4 = NIR, banda 3 = Red)
+ndvi  <- (raster_image[[4]] - raster_image[[3]]) / (raster_image[[4]] + raster_image[[3]])
+# MNDWI = (Green - SWIR) / (Green + SWIR) (assumendo banda 2 = Green, banda 5 = SWIR)
+mndwi <- (raster_image[[2]] - raster_image[[5]]) / (raster_image[[2]] + raster_image[[5]])
+# NDBI = (SWIR - NIR) / (SWIR + NIR) (assumendo banda 5 = SWIR, banda 4 = NIR)
+ndbi  <- (raster_image[[5]] - raster_image[[4]]) / (raster_image[[5]] + raster_image[[4]])
+
+# Creo uno stack combinando le bande originali e i nuovi indici calcolati
+stacked_raster <- c(raster_image, ndvi, mndwi, ndbi)
+
+# Estraggo i valori dello stack come matrice e rimuovo le righe con valori NA
+matrix_values <- values(stacked_raster)
+cleaned_matrix <- matrix_values[complete.cases(matrix_values), ]
+
+# Definisco una funzione per normalizzare i dati usando il metodo Min-Max
+normalize <- function(x) {
+    (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+}
+
+# Normalizzo ogni colonna del dataset
+normalized_matrix <- apply(cleaned_matrix, 2, normalize)
+
+# Eseguo la PCA sull'intero set di dati normalizzati
+pca_raw <- prcomp(normalized_matrix)
+
+# Imposto un tema personalizzato per i grafici
+my_theme <- theme_classic() +
+    theme(
+        plot.title = element_text(size = 35, face = "bold"),
+        axis.title = element_text(size = 35),
+        axis.text  = element_text(size = 35)
+    )
+
+# Visualizzo il plot della PCA sui dati reali (Pre‑SOM)
+p1 <- fviz_pca_ind(pca_raw, 
+                   title = paste("PCA - Raw Data -", short_name_som(first_image)),
+                   geom = "point", 
+                   ggtheme = my_theme)
+print(p1)
+
+# Genero un dataset casuale con la stessa struttura dei dati reali per un confronto
+random_df <- as.data.frame(apply(normalized_matrix, 2, function(x) {
+    runif(length(x), min = min(x), max = max(x))
+}))
+pca_random <- prcomp(random_df)
+
+# Visualizzo il plot della PCA sul dataset casuale (Pre‑SOM)
+p2 <- fviz_pca_ind(pca_random, 
+                   title = paste("PCA - Random Data (Raw) -", short_name_som(first_image)),
+                   geom = "point", 
+                   ggtheme = my_theme)
+print(p2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ================================================
+# Codice 2: PCA sui Dati Elaborati tramite SOM
+# ================================================
+
+# Carico le librerie necessarie per la gestione delle SOM e la visualizzazione della PCA
+library(kohonen)    # Per la gestione delle Self-Organizing Maps
+library(factoextra) # Per la visualizzazione dei risultati della PCA
+library(ggplot2)
+library(stringr)
+
+# La funzione short_name_som() è già definita sopra e la riutilizzo
+
+# Specifico la cartella contenente i modelli SOM e ottengo la lista dei file dei modelli
+som_folder <- "C:/PN_Sila/som_Sila"
+som_files <- list.files(path = som_folder, pattern = "_som_model\\.rds$", full.names = TRUE)
+
+# Seleziono il primo file di modello SOM trovato; se non ne trovo nessuno, interrompo l'esecuzione
+if (length(som_files) == 0) {
+    stop("Nessun file di modello SOM trovato nella cartella.")
+}
+first_som_file <- som_files[1]
+
+# Carico il modello SOM
+som_model <- readRDS(first_som_file)
+
+# Estraggo i vettori del codebook (i pesi appresi dalla rete)
+som_values <- som_model$codes[[1]]
+
+# Eseguo la PCA sull'intero set di dati derivato dal SOM
+pca_som <- prcomp(som_values)
+
+# Riutilizzo il tema personalizzato per i grafici
+my_theme <- theme_classic() +
+    theme(
+        plot.title = element_text(size = 35, face = "bold"),
+        axis.title = element_text(size = 35),
+        axis.text  = element_text(size = 35)
+    )
+
+# Visualizzo il plot della PCA sui dati elaborati tramite SOM
+p3 <- fviz_pca_ind(pca_som, 
+                   title = paste("PCA - SOM Data -", short_name_som(first_som_file)),
+                   geom = "point", 
+                   ggtheme = my_theme)
+print(p3)
+
+# Genero un dataset casuale con la stessa struttura dei dati del SOM per un confronto
+random_df_som <- as.data.frame(apply(som_values, 2, function(x) {
+    runif(length(x), min = min(x), max = max(x))
+}))
+pca_random_som <- prcomp(random_df_som)
+
+# Visualizzo il plot della PCA sul dataset casuale (SOM)
+p4 <- fviz_pca_ind(pca_random_som, 
+                   title = paste("PCA - Random Data (SOM) -", short_name_som(first_som_file)),
+                   geom = "point", 
+                   ggtheme = my_theme)
+print(p4)
+
+
+
+
+
+
+
+# ================================================
+# Codice 3: Calcolo della Statistica di Hopkins per i Dati Grezzi (Pre-SOM)
+# ================================================
+
+# Carico le librerie necessarie
+library(terra)
+library(hopkins)
+
+# Specifico la cartella contenente le immagini .tif e ottengo la lista dei file
+image_dir <- "C:/PN_Sila"
+image_files <- list.files(path = image_dir, pattern = "\\.tif$", full.names = TRUE)
+
+# Seleziono il primo file .tif trovato; se non ne trovo nessuno, interrompo l'esecuzione
+if (length(image_files) == 0) {
+  stop("Nessuna immagine .tif trovata nella cartella.")
+}
+first_image <- image_files[1]
+
+# Carico il raster multibanda dall'immagine selezionata
+raster_image <- rast(first_image)
+
+# Calcolo gli indici spettrali:
+# NDVI = (NIR - Red) / (NIR + Red) (assumendo banda 4 = NIR, banda 3 = Red)
+ndvi <- (raster_image[[4]] - raster_image[[3]]) / (raster_image[[4]] + raster_image[[3]])
+# MNDWI = (Green - SWIR) / (Green + SWIR) (assumendo banda 2 = Green, banda 5 = SWIR)
+mndwi <- (raster_image[[2]] - raster_image[[5]]) / (raster_image[[2]] + raster_image[[5]])
+# NDBI = (SWIR - NIR) / (SWIR + NIR) (assumendo banda 5 = SWIR, banda 4 = NIR)
+ndbi <- (raster_image[[5]] - raster_image[[4]]) / (raster_image[[5]] + raster_image[[4]])
+
+# Creo uno stack combinando le bande originali e i nuovi indici
+stacked_raster <- c(raster_image, ndvi, mndwi, ndbi)
+
+# Estraggo i valori dello stack come matrice e rimuovo le righe contenenti NA
+matrix_values <- values(stacked_raster)
+cleaned_matrix <- matrix_values[complete.cases(matrix_values), ]
+
+# Definisco la funzione per normalizzare i dati usando il metodo Min-Max
+normalize <- function(x) {
+  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+}
+
+# Normalizzo ogni colonna del dataset
+normalized_matrix <- apply(cleaned_matrix, 2, normalize)
+
+# Campiono 10.000 osservazioni (o tutte se inferiori a 10.000)
+sample_size <- min(10000, nrow(normalized_matrix))
+sampled_matrix <- normalized_matrix[sample(nrow(normalized_matrix), sample_size), ]
+
+# Calcolo la statistica di Hopkins sui dati grezzi
+hopkins_raw <- hopkins(sampled_matrix)
+
+# Genero un dataset casuale con la stessa struttura dei dati campionati per confronto
+random_df <- as.data.frame(apply(sampled_matrix, 2, function(x) {
+  runif(length(x), min = min(x), max = max(x))
+}))
+hopkins_random <- hopkins(random_df)
+
+# Stampo i risultati
+cat("Hopkins statistic for raw data:", hopkins_raw, "\n")
+cat("Hopkins statistic for random data (raw):", hopkins_random, "\n")
+
+
+
+
+
+
+
+
+# ================================================
+# Codice 4: Calcolo della Statistica di Hopkins per i Dati SOM (Post-SOM)
+# ================================================
+
+# Carico le librerie necessarie per la gestione delle SOM e il calcolo della statistica di Hopkins
+library(kohonen)  # Per le Self-Organizing Maps
+library(hopkins)
+
+# Specifico la cartella contenente i modelli SOM e ottengo la lista dei file dei modelli
+som_folder <- "C:/PN_Sila/som_Sila"
+som_files <- list.files(path = som_folder, pattern = "_som_model\\.rds$", full.names = TRUE)
+
+# Seleziono il primo file di modello SOM trovato; se non ne trovo nessuno, interrompo l'esecuzione
+if (length(som_files) == 0) {
+  stop("Nessun file di modello SOM trovato nella cartella.")
+}
+first_som_file <- som_files[1]
+
+# Carico il modello SOM
+som_model <- readRDS(first_som_file)
+
+# Estraggo i dati elaborati dalla SOM (i vettori del codebook)
+som_values <- som_model$codes[[1]]
+
+# Calcolo la statistica di Hopkins sui dati elaborati tramite SOM (senza campionamento)
+hopkins_som <- hopkins(som_values)
+
+# Genero un dataset casuale con la stessa struttura dei dati SOM per confronto
+random_df <- as.data.frame(apply(som_values, 2, function(x) {
+  runif(length(x), min = min(x), max = max(x))
+}))
+hopkins_random <- hopkins(random_df)
+
+# Stampo i risultati
+cat("Hopkins statistic for SOM data:", hopkins_som, "\n")
+cat("Hopkins statistic for random data (SOM):", hopkins_random, "\n")

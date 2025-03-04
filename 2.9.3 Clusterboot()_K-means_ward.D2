@@ -1,6 +1,6 @@
-# ====================================================
+
 # Clusterboot con K-means
-# ====================================================
+
 
 # Sezione 1: Carico le librerie necessarie
 library(kohonen)    # Per leggere i modelli SOM
@@ -12,16 +12,16 @@ library(openxlsx)   # Per salvare i risultati in formato Excel
 # Imposto il seed per garantire la riproducibilità
 set.seed(123)
 
-# ====================================================
+
 # Sezione 2: Imposto le configurazioni iniziali
-# ====================================================
+
 rds_dir <- "C:/PN_Abruzzo_L_M/som_Abruzzo_L_M"  # Specifico la directory contenente i file SOM
 rds_files <- list.files(path = rds_dir, pattern = "\\.rds$", full.names = TRUE)  # Recupero i file .rds
 optimal_clusters <- 3  # Definisco il numero di cluster predefinito
 
-# ====================================================
+
 # Sezione 3: Eseguo Clusterboot per ogni modello SOM utilizzando K-means
-# ====================================================
+
 results <- lapply(rds_files, function(rds_path) {
     cat("\nProcesso il file:", basename(rds_path), "\n")
     som_model <- readRDS(rds_path)               # Carico il modello SOM
@@ -53,9 +53,9 @@ results <- lapply(rds_files, function(rds_path) {
     )
 })
 
-# ====================================================
+
 # Sezione 4: Combino i risultati e li salvo in un file Excel
-# ====================================================
+
 results_summary <- bind_rows(results)  # Unisco tutti i risultati in un'unica tabella
 print(results_summary)
 
@@ -81,9 +81,9 @@ cat("\nRisultati salvati in formato Excel:", output_excel_path, "\n")
 
 
 
-# ====================================================
+
 # Clusterboot con Hclust (Ward.D2)
-# ====================================================
+
 
 # Sezione 1: Carico le librerie necessarie
 library(kohonen)    # Per leggere i modelli SOM
@@ -102,9 +102,9 @@ rds_dir <- "C:/PN_Abruzzo_L_M/som_Abruzzo_L_M"  # Specifico la directory dei fil
 rds_files <- list.files(path = rds_dir, pattern = "\\.rds$", full.names = TRUE)  # Recupero i file .rds
 optimal_clusters <- 3  # Definisco il numero di cluster predefinito
 
-# ====================================================
+
 # Sezione 3: Eseguo Clusterboot per ogni modello SOM utilizzando Hclust (Ward.D2)
-# ====================================================
+
 results <- lapply(rds_files, function(rds_path) {
     cat("\nProcesso il file:", basename(rds_path), "\n")
     som_model <- readRDS(rds_path)              # Carico il modello SOM
@@ -137,9 +137,9 @@ results <- lapply(rds_files, function(rds_path) {
     )
 })
 
-# ====================================================
+
 # Sezione 4: Combino i risultati e li salvo in un file Excel
-# ====================================================
+
 results_summary <- bind_rows(results)  # Unisco i risultati in un'unica tabella
 print(results_summary)
 

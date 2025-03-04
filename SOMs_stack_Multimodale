@@ -1,1 +1,65 @@
+# Carico le librerie necessarie
+library(terra)
+library(kohonen)
+library(parallel)
+
+# Inizio a misurare il tempo di esecuzione dell'intero script
+start_time <- Sys.time()
+
+# Definisco una funzione per normalizzare i dati usando la tecnica Min-Max
+normalize <- function(x) {
+    (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+}
+
+# Definisco una funzione per elaborare una singola immagine
+process_image <- function(image_path) {
+    # Carico il raster multibanda dall'immagine e calcolo alcuni indici
+    raster_image <- rast(image_path)
+    ndvi <- (raster_image[[4]] - raster_image[[3]]) / (raster_image[[4]] + raster_image[[3]])
+    mndwi <- (raster_image[[2]] - raster_image[[5]]) / (raster_image[[2]] + raster_image[[5]])
+    ndbi <- (raster_image[[5]] - raster_image[[4]]) / (raster_image[[5]] + raster_image[[4]])
+    
+    # Creo uno stack del raster includendo le bande originali e gli indici calcolati
+    stacked_raster <- c(raster_image, ndvi, mndwi, ndbi)
+    
+    # Estraggo i valori dello stack come matrice, rimuovo le righe con NA e normalizzo le colonne
+    matrix_values <- values(stacked_raster)
+    cleaned_matrix <- matrix_values[complete.cases(matrix_values), ]
+    normalized_matrix <- apply(cleaned_matrix, 2, normalize)
+    
+    # Calcolo il numero totale di neuroni in base al numero di osservazioni e definisco la griglia SOM
+    num_observations <- nrow(normalized_matrix)
+    total_neurons <- 5 * sqrt(num_observations)
+    grid_x <- round(sqrt(total_neurons))
+    grid_y <- round(total_neurons / grid_x)
+    som_grid <- somgrid(xdim = grid_x, ydim = grid_y, topo = "hexagonal")
+    
+    # Imposto il seed per "garantire" la riproducibilità dell'addestramento della SOM
+    # Trattandosi di un'esecuzione in parallelo set.seed potrebbe non essere sufficiente a garantire la riproducibilità dei risultati
+    set.seed(123)
+    
+    # Eseguo il modello SuperSOM utilizzando la parallelizzazione
+    som_model <- supersom(
+        list(normalized_matrix), 
+        grid = som_grid, 
+        rlen = 1000, 
+        mode = "pbatch", 
+        cores = -1
+    )
+    
+    # Salvo il modello SOM in un file, aggiungendo "_som_model.rds" al nome dell'immagine
+    output_path <- file.path("C:/Sila/som_sila", paste0(basename(image_path), "_som_model.rds"))
+    saveRDS(som_model, output_path)
+}
+
+# Recupero i percorsi di tutte le immagini TIFF nella cartella "C:/Sila"
+image_paths <- list.files(path = "C:/Sila", pattern = "\\.tif$", full.names = TRUE)
+# Itero su ciascuna immagine e la processo
+for (image_path in image_paths) {
+    process_image(image_path)
+}
+
+# Calcolo e stampo il tempo totale di esecuzione dello script
+total_time <- Sys.time() - start_time
+cat("Tempo totale di esecuzione:", total_time, "\n")
 
